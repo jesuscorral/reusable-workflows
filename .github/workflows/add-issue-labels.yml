@@ -1,0 +1,106 @@
+name: 🏷️ Auto Label [Issues]
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+  
+jobs:
+  auto-label:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Label Issues and PRs
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const title = context.payload.issue?.title || context.payload.pull_request?.title;
+            const body = context.payload.issue?.body || context.payload.pull_request?.body || '';
+            const labels = [];
+            const enableTypeLabels = true;
+            const enablePriorityDetection = true;
+            const customMapping = {};
+            
+            // Auto-label based on title keywords with type: prefix
+            if (enableTypeLabels) {
+              if (title.toLowerCase().includes('[bug]') || title.toLowerCase().includes('bug:')) {
+                labels.push('type:bug');
+              }
+              if (title.toLowerCase().includes('[pbi]') || title.toLowerCase().includes('pbi:')) {
+                labels.push('type:pbi');
+              }
+              if (title.toLowerCase().includes('[docs]') || title.toLowerCase().includes('docs:')) {
+                labels.push('type:documentation');
+              }
+              if (title.toLowerCase().includes('[epic]') || title.toLowerCase().includes('epic:')) {
+                labels.push('type:epic');
+              }
+              if (title.toLowerCase().includes('[task]') || title.toLowerCase().includes('task:')) {
+                labels.push('type:task');
+              }
+              if (title.toLowerCase().includes('[tech-debt]') || title.toLowerCase().includes('tech debt')) {
+                labels.push('type:tech-debt');
+              }
+            }
+            
+            // Auto-label based on body content for priority
+            if (enablePriorityDetection) {
+              const bodyLower = body.toLowerCase();
+              if (bodyLower.includes('critical') || bodyLower.includes('urgent')) {
+                labels.push('priority:critical');
+              } else if (bodyLower.includes('high priority') || bodyLower.includes('important')) {
+                labels.push('priority:high');
+              } else if (bodyLower.includes('low priority') || bodyLower.includes('nice to have')) {
+                labels.push('priority:low');
+              } else if (bodyLower.includes('medium priority')) {
+                labels.push('priority:medium');
+              }
+            }
+            
+            // Auto-label based on issue template detection
+            const bodyLower = body.toLowerCase();
+            if (bodyLower.includes('## 🐛 bug description') || bodyLower.includes('steps to reproduce')) {
+              labels.push(enableTypeLabels ? 'type:bug' : 'bug');
+            }
+            if (bodyLower.includes('## 🎯 **feature description**') || bodyLower.includes('## ✅ **acceptance criteria**')) {
+              labels.push(enableTypeLabels ? 'type:pbi' : 'pbi');
+            }
+            if (bodyLower.includes('## 🎯 **epic overview**') || bodyLower.includes('## 📊 **business value**')) {
+              labels.push(enableTypeLabels ? 'type:epic' : 'epic');
+            }
+            if (bodyLower.includes('## 📚 type of documentation improvement') || bodyLower.includes('documentation improvement')) {
+              labels.push(enableTypeLabels ? 'type:documentation' : 'documentation');
+            }
+            
+            // Always add needs-triage for new issues
+            if (context.payload.issue) {
+              labels.push('status:needs-triage');
+            }
+            
+            // Apply custom label mapping
+            for (const [keyword, label] of Object.entries(customMapping)) {
+              if (title.toLowerCase().includes(keyword.toLowerCase()) || bodyLower.includes(keyword.toLowerCase())) {
+                labels.push(label);
+              }
+            }
+            
+            // Apply labels if any were found
+            if (labels.length > 0) {
+              const uniqueLabels = [...new Set(labels)]; // Remove duplicates
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue?.number || context.payload.pull_request?.number,
+                labels: uniqueLabels
+              });
+              
+              console.log(`Applied labels: ${uniqueLabels.join(', ')}`);
+            } else {
+              console.log('No labels to apply');
+            }
