@@ -1,0 +1,108 @@
+name: 🏷️ Setup Labels (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      additional-labels:
+        description: 'JSON array of additional labels to create'
+        required: false
+        type: string
+        default: '[]'
+      skip-default-labels:
+        description: 'Skip creating default organization labels'
+        required: false
+        type: boolean
+        default: false
+      label-prefix:
+        description: 'Prefix for type labels (e.g., "type:" or "")'
+        required: false
+        type: string
+        default: 'type:'
+
+jobs:
+  setup-labels:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Setup Repository Labels
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const skipDefaults = ${{ inputs.skip-default-labels }};
+            const labelPrefix = '${{ inputs.label-prefix }}';
+            const additionalLabels = JSON.parse('${{ inputs.additional-labels }}');
+            
+            // Default organization labels
+            const defaultLabels = [
+              { name: `${labelPrefix}epic`, color: '5A009D', description: 'Large body of work' },
+              { name: `${labelPrefix}pbi`, color: '00ACC1', description: 'Product Backlog Item' },
+              { name: `${labelPrefix}bug`, color: 'D73A4A', description: 'Something isn\'t working' },
+              { name: `${labelPrefix}task`, color: '795548', description: 'A task to be done' },
+              { name: `${labelPrefix}tech-debt`, color: 'BF8700', description: 'Technical debt related' },
+              { name: `${labelPrefix}documentation`, color: 'F0E68C', description: 'Documentation related' },
+              { name: `${labelPrefix}infrastructure`, color: 'A3A3A3', description: 'Infrastructure related' },
+
+              { name: 'priority:critical', color: 'B60205', description: 'Critical priority' },
+              { name: 'priority:high', color: 'D93F0B', description: 'High priority' },
+              { name: 'priority:medium', color: 'FBCA04', description: 'Medium priority' },
+              { name: 'priority:low', color: '1D76DB', description: 'Low priority' },
+
+              { name: 'status:needs-triage', color: 'F2F2F2', description: 'Needs triage' },
+              { name: 'status:in-progress', color: '007BFF', description: 'Work in progress' },
+              { name: 'status:blocked', color: '333333', description: 'Work is blocked' },
+              { name: 'status:review-needed', color: 'C5B3E6', description: 'Review is needed' },
+              { name: 'status:ready-for-testing', color: 'B3D4FF', description: 'Ready for testing' },
+              { name: 'status:done', color: '28A745', description: 'Work is done' }
+            ];
+            
+            // Combine default and additional labels
+            const labels = skipDefaults ? additionalLabels : [...defaultLabels, ...additionalLabels];
+            
+            let created = 0;
+            let updated = 0;
+            let errors = 0;
+            
+            for (const label of labels) {
+              try {
+                // Try to create the label
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name,
+                  color: label.color.replace('#', ''), // Remove # if present
+                  description: label.description
+                });
+                console.log(`✅ Created label: ${label.name}`);
+                created++;
+              } catch (error) {
+                if (error.status === 422) {
+                  // Label already exists, try to update it
+                  try {
+                    await github.rest.issues.updateLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      name: label.name,
+                      color: label.color.replace('#', ''),
+                      description: label.description
+                    });
+                    console.log(`🔄 Updated label: ${label.name}`);
+                    updated++;
+                  } catch (updateError) {
+                    console.log(`❌ Error updating label ${label.name}: ${updateError.message}`);
+                    errors++;
+                  }
+                } else {
+                  console.log(`❌ Error creating label ${label.name}: ${error.message}`);
+                  errors++;
+                }
+              }
+            }
+            
+            // Summary
+            console.log(`\n📊 Summary:`);
+            console.log(`   ✅ Created: ${created} labels`);
+            console.log(`   🔄 Updated: ${updated} labels`);
+            console.log(`   ❌ Errors: ${errors} labels`);
+            console.log(`   📝 Total processed: ${labels.length} labels`);

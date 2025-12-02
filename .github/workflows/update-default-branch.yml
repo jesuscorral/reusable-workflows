@@ -1,0 +1,58 @@
+name: Update Default Branch to Latest RC Branch
+
+on:
+  push:
+    branches:
+      # Trigger the workflow when a push occurs to any branch starting with 'rc/'
+      - 'rc/**' 
+      
+jobs:
+  update_default_branch:
+    runs-on: ubuntu-latest
+    
+    # Ensure the workflow has permissions to update repository settings
+    permissions:
+      contents: write # Needed for checkout
+      repository-projects: write # Needed to update repository settings (default_branch)
+      
+    steps:
+      - name: 1. Get the Latest Release Branch
+        id: get_latest_branch
+        env:
+          # Use the secret token stored in GitHub to authenticate API calls
+          GH_TOKEN: ${{ secrets.TEMPLATE_PROJECT_TOKEN }}
+          
+        # This script lists 'rc/' branches, sorts them by the last commit date,
+        # and extracts the name of the most recently updated branch.
+        run: |
+          LATEST_BRANCH=$(
+            curl -s -X GET \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/branches?per_page=100" | \
+            jq -r '.[] | select(.name | startswith("rc/"))' | \
+            jq -s 'sort_by(.commit.commit.author.date) | reverse | .[0].name // empty'
+          )
+          
+          echo "Identified the latest branch as: $LATEST_BRANCH"
+          echo "latest_branch=$LATEST_BRANCH" >> $GITHUB_OUTPUT
+
+      - name: 2. Update the Repository's Default Branch Setting
+        # Only proceed if a latest branch was successfully identified
+        if: steps.get_latest_branch.outputs.latest_branch != ''
+        env:
+          GH_TOKEN: ${{ secrets.TEMPLATE_PROJECT_TOKEN }}
+          
+        run: |
+          NEW_DEFAULT_BRANCH="${{ steps.get_latest_branch.outputs.latest_branch }}"
+          REPO_URL="https://api.github.com/repos/${{ github.repository }}"
+          
+          echo "Updating default branch to: $NEW_DEFAULT_BRANCH"
+          
+          # Use the GitHub REST API to send a PATCH request to update the 'default_branch' property
+          curl -X PATCH \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
+            -d "{\"default_branch\": \"$NEW_DEFAULT_BRANCH\"}" \
+            "$REPO_URL"
