@@ -1,0 +1,73 @@
+# HTTP · Smoke test
+#
+# Requests a list of paths on a deployed site and fails if any of them does
+# not answer 2xx (after retries) or, optionally, does not contain a text.
+# Typical use: right after a production deploy.
+name: HTTP · Smoke test
+
+on:
+  workflow_call:
+    inputs:
+      base-url:
+        description: Site root, for example https://www.example.com.
+        type: string
+        required: true
+      paths:
+        description: Paths to check, separated by spaces or new lines.
+        type: string
+        default: /
+      expected-text:
+        description: Text every page must contain (case-insensitive). '' only checks the status code.
+        type: string
+        default: ''
+      retries:
+        description: Retries per path (covers CDN propagation right after a deploy).
+        type: number
+        default: 5
+      retry-delay-seconds:
+        description: Seconds between retries.
+        type: number
+        default: 10
+      failure-hint:
+        description: Error annotation shown when the test fails, for example how to roll back.
+        type: string
+        default: ''
+      timeout-minutes:
+        description: Job timeout.
+        type: number
+        default: 5
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    name: Smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - name: Check pages respond
+        env:
+          BASE_URL: ${{ inputs.base-url }}
+          PATHS: ${{ inputs.paths }}
+          EXPECTED_TEXT: ${{ inputs.expected-text }}
+          RETRIES: ${{ inputs.retries }}
+          RETRY_DELAY: ${{ inputs.retry-delay-seconds }}
+        run: |
+          set -euo pipefail
+          for path in $PATHS; do
+            url="${BASE_URL%/}${path}"
+            echo "Checking ${url}"
+            body=$(curl --fail --silent --show-error --location \
+              --retry "$RETRIES" --retry-delay "$RETRY_DELAY" --retry-all-errors "$url")
+            if [ -n "$EXPECTED_TEXT" ] && ! grep -qiF -- "$EXPECTED_TEXT" <<<"$body"; then
+              echo "::error::${url} does not contain the expected text: ${EXPECTED_TEXT}"
+              exit 1
+            fi
+          done
+
+      - name: Failure hint
+        if: failure() && inputs.failure-hint != ''
+        env:
+          HINT: ${{ inputs.failure-hint }}
+        run: echo "::error::${HINT}"

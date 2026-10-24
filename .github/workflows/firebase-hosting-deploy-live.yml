@@ -1,0 +1,77 @@
+# Firebase Hosting · Deploy live channel (production)
+#
+# Uploads a build to the Firebase Hosting live channel, i.e. publishes it to
+# production, and records it as a deployment of a GitHub environment.
+# Roll back from the Firebase console: Hosting → Release history → Roll back.
+#
+# Serialize production deploys in the caller (concurrency group).
+name: Firebase Hosting · Deploy live channel
+
+on:
+  workflow_call:
+    inputs:
+      firebase-project-id:
+        description: Firebase project ID.
+        type: string
+        required: true
+      site-url:
+        description: Public URL of the site, shown on the GitHub environment.
+        type: string
+        required: true
+      environment-name:
+        description: GitHub environment the deployment is recorded under (its protection rules apply).
+        type: string
+        default: production
+      firebase-tools-version:
+        description: firebase-tools version used to deploy. Pinned so a CLI release cannot break deploys.
+        type: string
+        default: 15.33.0
+      build-artifact-name:
+        description: Artifact with the build to deploy.
+        type: string
+        default: dist
+      build-path:
+        description: Folder where the build is restored (must match "public" in firebase.json).
+        type: string
+        default: dist
+      timeout-minutes:
+        description: Job timeout.
+        type: number
+        default: 10
+    secrets:
+      FIREBASE_SERVICE_ACCOUNT:
+        description: JSON key of a service account allowed to deploy to Firebase Hosting.
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-live:
+    name: Deploy live channel
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    environment:
+      name: ${{ inputs.environment-name }}
+      url: ${{ inputs.site-url }}
+    steps:
+      # firebase.json (headers, rewrites) must match the commit being deployed.
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Download build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.build-artifact-name }}
+          path: ${{ inputs.build-path }}
+
+      - name: Deploy to live channel
+        uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a # v0
+        with:
+          repoToken: ${{ github.token }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: ${{ inputs.firebase-project-id }}
+          channelId: live
+          firebaseToolsVersion: ${{ inputs.firebase-tools-version }}

@@ -1,0 +1,73 @@
+# Web · Lighthouse CI audit
+#
+# Audits a static build with Lighthouse CI (`lhci autorun`). URLs, number of
+# runs and score assertions come from the calling repo's lighthouserc file,
+# so each project sets its own thresholds. Reports are always uploaded.
+name: Web · Lighthouse CI audit
+
+on:
+  workflow_call:
+    inputs:
+      node-version-file:
+        description: File with the Node.js version to use.
+        type: string
+        default: .nvmrc
+      build-artifact-name:
+        description: Artifact with the static build to audit.
+        type: string
+        default: dist
+      build-path:
+        description: Folder where the build is restored (must match staticDistDir in lighthouserc).
+        type: string
+        default: dist
+      lhci-version:
+        description: Version of @lhci/cli to run.
+        type: string
+        default: 0.15.1
+      reports-path:
+        description: Folder with the Lighthouse reports to upload.
+        type: string
+        default: .lighthouseci/reports
+      timeout-minutes:
+        description: Job timeout.
+        type: number
+        default: 15
+
+permissions:
+  contents: read
+
+jobs:
+  lighthouse:
+    name: Lighthouse CI audit
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      # Needed for the lighthouserc file and the Node version file.
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+
+      - name: Download build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.build-artifact-name }}
+          path: ${{ inputs.build-path }}
+
+      - name: Run Lighthouse CI
+        env:
+          LHCI_VERSION: ${{ inputs.lhci-version }}
+        run: npx --yes "@lhci/cli@${LHCI_VERSION}" autorun
+
+      - name: Upload Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lighthouse-reports
+          path: ${{ inputs.reports-path }}
+          retention-days: 7
