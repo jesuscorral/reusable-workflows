@@ -1,0 +1,133 @@
+# Node · Quality gate
+#
+# Validates a Node.js project and builds it ONCE: dependency audit, lint,
+# unit tests and production build. The build and the coverage report are
+# uploaded as artifacts so later jobs (E2E, Lighthouse, deploys, SonarCloud)
+# reuse exactly what passed the gate.
+#
+# Setting audit-command, lint-command or test-command to '' skips that step.
+name: Node · Quality gate
+
+on:
+  workflow_call:
+    inputs:
+      node-version-file:
+        description: File with the Node.js version to use (.nvmrc, .node-version or package.json).
+        type: string
+        default: .nvmrc
+      install-command:
+        description: Command that installs dependencies.
+        type: string
+        default: npm ci
+      audit-command:
+        description: Command that fails on vulnerable dependencies. '' skips the audit.
+        type: string
+        default: npm audit --omit=dev --audit-level=high
+      lint-command:
+        description: Lint command. '' skips linting.
+        type: string
+        default: npm run lint
+      test-command:
+        description: Unit test command (should write the coverage report). '' skips tests.
+        type: string
+        default: npm test -- --coverage
+      build-command:
+        description: Production build command.
+        type: string
+        default: npm run build
+      build-path:
+        description: Folder produced by the build.
+        type: string
+        default: dist
+      build-artifact-name:
+        description: Name of the artifact that stores the build.
+        type: string
+        default: dist
+      coverage-path:
+        description: Folder with the coverage report. '' skips the coverage upload.
+        type: string
+        default: coverage
+      coverage-artifact-name:
+        description: Name of the artifact that stores the coverage report.
+        type: string
+        default: coverage
+      artifact-retention-days:
+        description: Days the build and coverage artifacts are kept.
+        type: number
+        default: 7
+      timeout-minutes:
+        description: Job timeout.
+        type: number
+        default: 15
+    outputs:
+      build-artifact-name:
+        description: Name of the uploaded build artifact.
+        value: ${{ inputs.build-artifact-name }}
+      coverage-artifact-name:
+        description: Name of the uploaded coverage artifact ('' when none is uploaded).
+        value: ${{ inputs.coverage-path != '' && inputs.test-command != '' && inputs.coverage-artifact-name || '' }}
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    name: Audit, lint, unit tests & build
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+          cache: npm
+
+      # Commands arrive through env vars and are never interpolated into the script.
+      - name: Install dependencies
+        env:
+          COMMAND: ${{ inputs.install-command }}
+        run: bash -euo pipefail -c "$COMMAND"
+
+      - name: Audit dependencies
+        if: inputs.audit-command != ''
+        env:
+          COMMAND: ${{ inputs.audit-command }}
+        run: bash -euo pipefail -c "$COMMAND"
+
+      - name: Lint
+        if: inputs.lint-command != ''
+        env:
+          COMMAND: ${{ inputs.lint-command }}
+        run: bash -euo pipefail -c "$COMMAND"
+
+      - name: Unit tests
+        if: inputs.test-command != ''
+        env:
+          COMMAND: ${{ inputs.test-command }}
+        run: bash -euo pipefail -c "$COMMAND"
+
+      - name: Build
+        env:
+          COMMAND: ${{ inputs.build-command }}
+        run: bash -euo pipefail -c "$COMMAND"
+
+      - name: Upload build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.build-artifact-name }}
+          path: ${{ inputs.build-path }}
+          retention-days: ${{ inputs.artifact-retention-days }}
+          if-no-files-found: error
+
+      - name: Upload coverage report
+        if: inputs.coverage-path != '' && inputs.test-command != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.coverage-artifact-name }}
+          path: ${{ inputs.coverage-path }}
+          retention-days: ${{ inputs.artifact-retention-days }}

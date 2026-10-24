@@ -1,0 +1,39 @@
+# Self-check of this repository (not reusable): lints every workflow with
+# actionlint (syntax, expressions, reusable workflow inputs/outputs, shellcheck).
+name: Lint workflows
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      # Lists the workflows that follow the conventions in README.md. Add new
+      # workflows here; the older ones (Docker, labels) are not linted yet.
+      - name: Run actionlint
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: >-
+            -color
+            .github/workflows/lint-workflows.yml
+            .github/workflows/node-quality-gate.yml
+            .github/workflows/node-playwright-e2e.yml
+            .github/workflows/web-lighthouse-audit.yml
+            .github/workflows/firebase-hosting-deploy-preview.yml
+            .github/workflows/firebase-hosting-deploy-live.yml
+            .github/workflows/sonarcloud-analysis.yml
+            .github/workflows/http-smoke-test.yml

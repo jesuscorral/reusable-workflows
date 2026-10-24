@@ -1,0 +1,96 @@
+# Node · Playwright E2E tests
+#
+# Runs the project's Playwright tests against a build produced earlier in the
+# same run (for example by node-quality-gate.yml). The calling repo's
+# Playwright config decides how the site is served (usually a webServer block).
+# The HTML report is uploaded only when the tests fail.
+name: Node · Playwright E2E tests
+
+on:
+  workflow_call:
+    inputs:
+      node-version-file:
+        description: File with the Node.js version to use.
+        type: string
+        default: .nvmrc
+      install-command:
+        description: Command that installs dependencies (Playwright must be one of them).
+        type: string
+        default: npm ci
+      build-artifact-name:
+        description: Artifact with the build to test. '' skips the download.
+        type: string
+        default: dist
+      build-path:
+        description: Folder where the build artifact is restored.
+        type: string
+        default: dist
+      browsers:
+        description: Space-separated Playwright browsers to install (chromium firefox webkit). '' installs all.
+        type: string
+        default: ''
+      e2e-command:
+        description: Command that runs the E2E tests.
+        type: string
+        default: npm run e2e
+      report-path:
+        description: Folder with the Playwright HTML report, uploaded on failure. '' skips the upload.
+        type: string
+        default: playwright-report
+      timeout-minutes:
+        description: Job timeout.
+        type: number
+        default: 20
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Playwright E2E tests
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+          cache: npm
+
+      - name: Install dependencies
+        env:
+          COMMAND: ${{ inputs.install-command }}
+        run: bash -euo pipefail -c "$COMMAND"
+
+      - name: Download build
+        if: inputs.build-artifact-name != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.build-artifact-name }}
+          path: ${{ inputs.build-path }}
+
+      - name: Install Playwright browsers
+        env:
+          BROWSERS: ${{ inputs.browsers }}
+        # Word splitting is intended: one argument per browser.
+        run: |
+          # shellcheck disable=SC2086
+          npx playwright install --with-deps $BROWSERS
+
+      - name: Run E2E tests
+        env:
+          COMMAND: ${{ inputs.e2e-command }}
+        run: bash -euo pipefail -c "$COMMAND"
+
+      - name: Upload Playwright report
+        if: failure() && inputs.report-path != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: ${{ inputs.report-path }}
+          retention-days: 7

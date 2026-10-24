@@ -1,0 +1,95 @@
+# Firebase Hosting · Deploy preview channel
+#
+# Uploads a build to a temporary Firebase Hosting preview channel (one per
+# pull request) and comments the preview URL on the PR. Production (the live
+# channel) is never touched. Call it from a `pull_request` workflow.
+#
+# The calling job must grant: contents: read, checks: write, pull-requests: write.
+# Skip it for PRs from forks: secrets are not available to them.
+name: Firebase Hosting · Deploy preview channel
+
+on:
+  workflow_call:
+    inputs:
+      firebase-project-id:
+        description: Firebase project ID.
+        type: string
+        required: true
+      environment-name:
+        description: GitHub environment the deployment is recorded under.
+        type: string
+        default: preview
+      expires:
+        description: Lifetime of the preview channel (for example 7d or 12h; max 30d).
+        type: string
+        default: 7d
+      firebase-tools-version:
+        description: firebase-tools version used to deploy. Pinned so a CLI release cannot break deploys.
+        type: string
+        default: 15.33.0
+      build-artifact-name:
+        description: Artifact with the build to deploy.
+        type: string
+        default: dist
+      build-path:
+        description: Folder where the build is restored (must match "public" in firebase.json).
+        type: string
+        default: dist
+      timeout-minutes:
+        description: Job timeout.
+        type: number
+        default: 10
+    secrets:
+      FIREBASE_SERVICE_ACCOUNT:
+        description: JSON key of a service account allowed to deploy to Firebase Hosting.
+        required: true
+    outputs:
+      preview-url:
+        description: URL of the preview channel.
+        value: ${{ jobs.deploy-preview.outputs.preview-url }}
+      expire-time:
+        description: When the preview channel expires.
+        value: ${{ jobs.deploy-preview.outputs.expire-time }}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-preview:
+    name: Deploy preview channel
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    environment:
+      name: ${{ inputs.environment-name }}
+      url: ${{ steps.deploy.outputs.details_url }}
+    outputs:
+      preview-url: ${{ steps.deploy.outputs.details_url }}
+      expire-time: ${{ steps.deploy.outputs.expire_time }}
+    steps:
+      # firebase.json (headers, rewrites) must match the commit being deployed.
+      - name: Checkout repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Download build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.build-artifact-name }}
+          path: ${{ inputs.build-path }}
+
+      # Without channelId the action creates/updates one channel per PR and
+      # comments its URL on the PR.
+      - name: Deploy to preview channel
+        id: deploy
+        uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a # v0
+        with:
+          repoToken: ${{ github.token }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: ${{ inputs.firebase-project-id }}
+          expires: ${{ inputs.expires }}
+          firebaseToolsVersion: ${{ inputs.firebase-tools-version }}
